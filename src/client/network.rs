@@ -2,20 +2,23 @@ use std::io::{self, Read, Write};
 
 use crate::client::network::stream::NetworkStream;
 use futures::Poll;
+#[cfg(feature = "jwt")]
 use serde_derive::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod stream {
-use crate::client::network::{generate_httpproxy_auth, resolve};
+    #[cfg(feature = "jwt")]
+    use crate::client::network::generate_httpproxy_auth;
+    use crate::client::network::resolve;
     use crate::codec::MqttCodec;
     use crate::error::ConnectError;
     use futures::{
         future::{self, Either},
-        sink::Sink,
-        stream::Stream,
         Future,
     };
+    #[cfg(feature = "jwt")]
+    use futures::{sink::Sink, stream::Stream};
     use std::{
         io::{
             self, {BufReader, Cursor},
@@ -23,7 +26,9 @@ use crate::client::network::{generate_httpproxy_auth, resolve};
         sync::Arc,
     };
     use tokio::net::TcpStream;
-    use tokio::codec::{Decoder, Framed, LinesCodec};
+    use tokio::codec::{Decoder, Framed};
+    #[cfg(feature = "jwt")]
+    use tokio::codec::LinesCodec;
     use tokio_rustls::{
         rustls::{internal::pemfile, ClientConfig, ClientSession},
         TlsConnector, TlsStream,
@@ -134,6 +139,7 @@ use crate::client::network::{generate_httpproxy_auth, resolve};
         }
 
         #[allow(clippy::too_many_arguments)]
+        #[cfg(feature = "jwt")]
         pub fn http_connect(
             &self,
             id: &str,
@@ -191,12 +197,21 @@ use crate::client::network::{generate_httpproxy_auth, resolve};
             port: u16,
         ) -> impl Future<Item = Framed<NetworkStream, MqttCodec>, Error = ConnectError> {
             let tls_connector = self.create_stream();
-            let host_tcp = host.to_owned();
             let http_proxy = self.http_proxy.clone();
             let stream = match http_proxy {
-                Some(HttpProxy{id, proxy_host, proxy_port, key, expiry}) => {
-                    let s = self.http_connect(&id, &proxy_host, proxy_port, &host_tcp, port, &key, expiry);
-                    Either::A(s)
+                Some(proxy) => {
+                    #[cfg(feature = "jwt")]
+                    {
+                        let host_tcp = host.to_owned();
+                        let s = self.http_connect(&proxy.id, &proxy.proxy_host, proxy.proxy_port, &host_tcp, port, &proxy.key, proxy.expiry);
+                        Either::A(s)
+                    }
+                    #[cfg(not(feature = "jwt"))]
+                    {
+
+                        let s = self.tcp_connect(host, port);
+                        Either::A(s)
+                    }
                 }
                 None => {
                     let s = self.tcp_connect(host, port);
@@ -244,12 +259,14 @@ fn resolve(host: &str, port: u16) -> Result<SocketAddr, io::Error> {
         })
 }
 
+#[cfg(feature = "jwt")]
 fn generate_httpproxy_auth(id: &str, key: &[u8], expiry: i64) -> String {
     use chrono::{Duration, Utc};
     use jsonwebtoken::{encode, Algorithm, Header};
     use uuid::Uuid;
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug)]
+    #[cfg_attr(feature = "jwt", derive(Serialize, Deserialize))]
     struct Claims {
         iat: i64,
         exp: i64,

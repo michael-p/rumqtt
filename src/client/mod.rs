@@ -70,7 +70,7 @@ pub struct UserHandle {
 }
 
 /// Handle to send requests and commands to the network eventloop
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MqttClient {
     request_tx: mpsc::Sender<Request>,
     command_tx: mpsc::Sender<Command>,

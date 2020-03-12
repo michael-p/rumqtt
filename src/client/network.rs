@@ -118,8 +118,9 @@ use crate::client::network::{generate_httpproxy_auth, resolve};
                     let mut cert = BufReader::new(Cursor::new(cert));
                     let mut keys = BufReader::new(Cursor::new(key));
 
+                    // TODO Replace unwrap() with Errors!
                     let certs = pemfile::certs(&mut cert).unwrap();
-                    let keys = pemfile::rsa_private_keys(&mut keys).unwrap();
+                    let keys = pemfile::pkcs8_private_keys(&mut keys).unwrap();
 
                     config.set_single_client_cert(certs, keys[0].clone());
                 }
